@@ -1,6 +1,12 @@
 package io.javalin.plugin.openapi.annotations
 
-import io.javalin.plugin.openapi.dsl.*
+import io.javalin.plugin.openapi.dsl.DocumentedContent
+import io.javalin.plugin.openapi.dsl.DocumentedParameter
+import io.javalin.plugin.openapi.dsl.DocumentedResponse
+import io.javalin.plugin.openapi.dsl.OpenApiDocumentation
+import io.javalin.plugin.openapi.dsl.createUpdater
+import io.javalin.plugin.openapi.dsl.anyOf
+import io.javalin.plugin.openapi.dsl.oneOf
 import io.swagger.v3.oas.models.Operation
 import io.swagger.v3.oas.models.parameters.RequestBody
 import kotlin.reflect.KClass
@@ -18,7 +24,10 @@ fun OpenApi.asOpenApiDocumentation(): OpenApiDocumentation {
     annotation.pathParams.forEach { documentation.applyParamAnnotation("path", it) }
     annotation.queryParams.forEach { documentation.applyParamAnnotation("query", it) }
 
+    annotation.formParams.forEach { documentation.formParam(it.name, it.type.java, it.required) }
+
     documentation.applyRequestBodyAnnotation(annotation.requestBody)
+    documentation.applyComposedRequestBodyAnnotation(annotation.composedRequestBody)
 
     annotation.fileUploads.forEach { fileUpload ->
         if (fileUpload.isArray) {
@@ -27,8 +36,7 @@ fun OpenApi.asOpenApiDocumentation(): OpenApiDocumentation {
             documentation.uploadedFile(name = fileUpload.name) { it.applyAnnotation(fileUpload) }
         }
     }
-
-    annotation.responses.forEach { documentation.applyResponseAnnotation(it) }
+    documentation.applyResponseAnnotations(annotation.responses)
 
     return documentation
 }
@@ -72,6 +80,15 @@ private fun RequestBody.applyAnnotation(annotation: OpenApiRequestBody) {
     }
 }
 
+private fun RequestBody.applyAnnotation(annotation: OpenApiComposedRequestBody) {
+    if (annotation.required) {
+        this.required = annotation.required
+    }
+    if (annotation.description.isNotNullString()) {
+        this.description = annotation.description
+    }
+}
+
 private fun RequestBody.applyAnnotation(annotation: OpenApiFileUpload) {
     if (annotation.required) {
         this.required = annotation.required
@@ -97,19 +114,33 @@ private fun OpenApiDocumentation.applyRequestBodyAnnotation(requestBody: OpenApi
     }
 }
 
-private fun OpenApiDocumentation.applyResponseAnnotation(it: OpenApiResponse) {
+private fun OpenApiDocumentation.applyComposedRequestBodyAnnotation(requestBody: OpenApiComposedRequestBody) {
+    val composition = when {
+        requestBody.anyOf.isNotEmpty() -> anyOf(*requestBody.anyOf.toList().map { it.asDocumentedContent() }.toTypedArray())
+        requestBody.oneOf.isNotEmpty() -> oneOf(*requestBody.oneOf.toList().map { it.asDocumentedContent() }.toTypedArray())
+        else -> null
+    }
+    if (composition != null) {
+        this.body(composition, requestBody.contentType, createUpdater { it.applyAnnotation(requestBody) })
+    }
+}
+
+private fun OpenApiDocumentation.applyResponseAnnotations(responses: Array<OpenApiResponse>) {
     val documentation = this
-    documentation.result(
-            documentedResponse = DocumentedResponse(
-                    status = it.status,
-                    content = it.content.map { it.asDocumentedContent() }
-            ),
-            applyUpdates = { responseDocumentation ->
-                if (it.description.isNotNullString()) {
-                    responseDocumentation.description = it.description
+    responses.groupBy { it.status }.forEach { (status, list) ->
+        documentation.result(
+                documentedResponse = DocumentedResponse(
+                        status = status,
+                        content = list.flatMap { it.content.toList() }.map { it.asDocumentedContent() }
+                ),
+                applyUpdates = { responseDocumentation ->
+                    val description = list.map { it.description }.filter { it.isNotNullString() }.joinToString(separator = "; ")
+                    if (description.isNotBlank()) {
+                        responseDocumentation.description = description
+                    }
                 }
-            }
-    )
+        )
+    }
 }
 
 private fun OpenApiDocumentation.applyParamAnnotation(`in`: String, param: OpenApiParam) {

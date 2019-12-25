@@ -27,10 +27,15 @@ object ContextUtil {
         }
     }
 
-    fun splitKeyValueStringAndGroupByKey(string: String): Map<String, List<String>> {
-        return if (string.isEmpty()) mapOf() else string.split("&").map { it.split("=") }.groupBy(
+    // this header is semi-colon separated, like: "text/html; charset=UTF-8"
+    fun getRequestCharset(ctx: Context) = ctx.req.getHeader(Header.CONTENT_TYPE)?.let { value ->
+        value.split(";").find { it.trim().startsWith("charset", ignoreCase = true) }?.let { it.split("=")[1].trim() }
+    }
+
+    fun splitKeyValueStringAndGroupByKey(string: String, charset: String): Map<String, List<String>> {
+        return if (string.isEmpty()) mapOf() else string.split("&").map { it.split("=", limit = 2) }.groupBy(
                 { it[0] },
-                { if (it.size > 1) URLDecoder.decode(it[1], "UTF-8") else "" }
+                { if (it.size > 1) URLDecoder.decode(it[1], charset) else "" }
         ).mapValues { it.value.toList() }
     }
 
@@ -39,11 +44,14 @@ object ContextUtil {
 
     fun urlDecode(s: String): String = URLDecoder.decode(s.replace("+", "%2B"), "UTF-8").replace("%2B", "+")
 
-    fun getBasicAuthCredentials(header: String?): BasicAuthCredentials? = try {
+    fun hasBasicAuthCredentials(header: String?): Boolean {
+        return try { getBasicAuthCredentials(header); true } catch (e: Exception) { false }
+    }
+
+    fun getBasicAuthCredentials(header: String?): BasicAuthCredentials {
+        require(header?.startsWith("Basic ") == true) { "Invalid basicauth header. Value was '$header'." }
         val (username, password) = String(Base64.getDecoder().decode(header!!.removePrefix("Basic "))).split(':', limit = 2)
-        BasicAuthCredentials(username, password)
-    } catch (e: Exception) {
-        null
+        return BasicAuthCredentials(username, password)
     }
 
     fun acceptsHtml(ctx: Context) = ctx.header(Header.ACCEPT)?.contains("text/html") == true
@@ -66,7 +74,7 @@ object ContextUtil {
     fun Context.isLocalhost() = this.host()?.contains("localhost") == true || this.host()?.contains("127.0.0.1") == true
 
     fun changeBaseRequest(ctx: Context, req: HttpServletRequest) = Context(req, ctx.res).apply {
-        this.pathParamMap = ctx.pathParamMap;
+        this.pathParamMap = ctx.pathParamMap
         this.matchedPath = ctx.matchedPath
     }
 

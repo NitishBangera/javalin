@@ -3,7 +3,17 @@ package io.javalin.plugin.openapi.external
 import io.swagger.v3.core.converter.ModelConverters
 import io.swagger.v3.oas.models.Components
 import io.swagger.v3.oas.models.examples.Example
-import io.swagger.v3.oas.models.media.*
+import io.swagger.v3.oas.models.media.ArraySchema
+import io.swagger.v3.oas.models.media.BooleanSchema
+import io.swagger.v3.oas.models.media.Content
+import io.swagger.v3.oas.models.media.DateSchema
+import io.swagger.v3.oas.models.media.DateTimeSchema
+import io.swagger.v3.oas.models.media.IntegerSchema
+import io.swagger.v3.oas.models.media.MapSchema
+import io.swagger.v3.oas.models.media.MediaType
+import io.swagger.v3.oas.models.media.Schema
+import io.swagger.v3.oas.models.media.StringSchema
+import io.swagger.v3.oas.models.media.NumberSchema
 import io.swagger.v3.oas.models.parameters.Parameter
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -110,12 +120,15 @@ internal fun <T> findSchema(clazz: Class<T>): FindSchemaResponse? {
         Date::class.java -> FindSchemaResponse(DateSchema())
         LocalDate::class.java -> FindSchemaResponse(DateSchema())
         LocalDateTime::class.java -> FindSchemaResponse(DateTimeSchema())
+        java.lang.Double::class.java -> FindSchemaResponse(NumberSchema())
+        Double::class.java -> FindSchemaResponse(NumberSchema())
+        Float::class.java -> FindSchemaResponse(NumberSchema())
         /* BEGIN Custom classes */
         ByteArray::class.java -> FindSchemaResponse(StringSchema().format("binary"))
         /* END Custom classes */
         else -> {
-            val schemas = ModelConverters.getInstance().readAll(clazz)
-            schemas[clazz.simpleName]?.let { FindSchemaResponse(it, schemas) }
+            val resolved = ModelConverters.getInstance().readAllAsResolvedSchema(clazz)
+            return FindSchemaResponse(resolved.schema, resolved.referencedSchemas + mapOf(clazz.simpleName to resolved.schema))
         }
     }
 }

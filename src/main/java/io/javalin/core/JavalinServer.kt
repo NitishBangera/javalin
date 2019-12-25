@@ -10,7 +10,11 @@ import io.javalin.Javalin
 import io.javalin.http.JavalinServlet
 import io.javalin.websocket.JavalinWsServlet
 import io.javalin.websocket.isWebSocket
-import org.eclipse.jetty.server.*
+import org.eclipse.jetty.server.Handler
+import org.eclipse.jetty.server.LowResourceMonitor
+import org.eclipse.jetty.server.Request
+import org.eclipse.jetty.server.Server
+import org.eclipse.jetty.server.ServerConnector
 import org.eclipse.jetty.server.handler.HandlerCollection
 import org.eclipse.jetty.server.handler.HandlerList
 import org.eclipse.jetty.server.handler.HandlerWrapper
@@ -27,6 +31,7 @@ import javax.servlet.http.HttpServletResponse
 class JavalinServer(val config: JavalinConfig) {
 
     var serverPort = 7000
+    var serverHost: String? = null
 
     fun server(): Server {
         config.inner.server = config.inner.server ?: JettyUtil.getOrDefault(config.inner.server)
@@ -62,6 +67,7 @@ class JavalinServer(val config: JavalinConfig) {
             handler = attachJavalinHandlers(server.handler, HandlerList(httpHandler, webSocketHandler))
             connectors = connectors.takeIf { it.isNotEmpty() } ?: arrayOf(ServerConnector(server).apply {
                 this.port = serverPort
+                this.host = serverHost
             })
         }.start()
 

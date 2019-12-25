@@ -1,15 +1,34 @@
 package io.javalin.plugin.openapi.dsl
 
+import io.javalin.plugin.openapi.annotations.ComposedType
 import io.javalin.plugin.openapi.annotations.ContentType
-import io.javalin.plugin.openapi.external.*
+import io.javalin.plugin.openapi.external.mediaType
+import io.javalin.plugin.openapi.external.mediaTypeArrayOf
+import io.javalin.plugin.openapi.external.mediaTypeArrayOfRef
+import io.javalin.plugin.openapi.external.mediaTypeRef
+import io.javalin.plugin.openapi.external.schema
 import io.swagger.v3.oas.models.Components
 import io.swagger.v3.oas.models.media.Content
 import io.swagger.v3.oas.models.media.MediaType
 import io.swagger.v3.oas.models.media.Schema
 import java.math.BigDecimal
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.*
+
+@JvmOverloads
+fun documentedContent(
+        clazz: Class<*>,
+        isArray: Boolean = false,
+        contentType: String? = ContentType.AUTODETECT
+): DocumentedContent {
+    return DocumentedContent(
+            clazz,
+            contentType = contentType,
+            isArray = isArray
+    )
+}
 
 /** Kotlin factory for documented content */
 inline fun <reified T> documentedContent(
@@ -69,6 +88,16 @@ class DocumentedContent @JvmOverloads constructor(
     }
 }
 
+sealed class Composition(val type: ComposedType, val content: List<DocumentedContent>) {
+
+    class OneOf(contents: List<DocumentedContent>) : Composition(ComposedType.ONE_OF, contents)
+    class AnyOf(contents: List<DocumentedContent>) : Composition(ComposedType.ANY_OF, contents)
+
+}
+
+fun oneOf(vararg content: DocumentedContent) = Composition.OneOf(content.toList())
+fun anyOf(vararg content: DocumentedContent) = Composition.AnyOf(content.toList())
+
 /**
  * Try to determine the content type based on the class
  */
@@ -85,15 +114,19 @@ fun Class<*>.guessContentType(): String =
 val nonRefTypes = setOf(
         String::class.java,
         Boolean::class.java,
+        java.lang.Boolean::class.java,
         Int::class.java,
         Integer::class.java,
+        Double::class.java,
+        java.lang.Double::class.java,
         List::class.java,
         Long::class.java,
         BigDecimal::class.java,
         Date::class.java,
         LocalDate::class.java,
         LocalDateTime::class.java,
-        ByteArray::class.java
+        ByteArray::class.java,
+        Instant::class.java
 )
 
 fun Content.applyDocumentedContent(documentedContent: DocumentedContent) {

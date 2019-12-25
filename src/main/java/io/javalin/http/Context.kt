@@ -6,6 +6,7 @@
 
 package io.javalin.http
 
+import io.javalin.Javalin
 import io.javalin.core.security.BasicAuthCredentials
 import io.javalin.core.util.Header
 import io.javalin.core.validation.Validator
@@ -39,6 +40,7 @@ open class Context(@JvmField val req: HttpServletRequest, @JvmField val res: Htt
     // @formatter:on
 
     private val cookieStore by lazy { CookieStore(cookie(CookieStore.COOKIE_NAME)) }
+    private val characterEncoding by lazy { ContextUtil.getRequestCharset(this) ?: "UTF-8" }
     private var resultStream: InputStream? = null
     private var resultFuture: CompletableFuture<*>? = null
 
@@ -105,7 +107,7 @@ open class Context(@JvmField val req: HttpServletRequest, @JvmField val res: Htt
     ///////////////////////////////////////////////////////////////
 
     /** Gets the request body as a [String]. */
-    fun body(): String = bodyAsBytes().toString(Charset.forName(req.characterEncoding ?: "UTF-8"))
+    fun body(): String = bodyAsBytes().toString(Charset.forName(characterEncoding))
 
     /**
      * Maps a JSON body to a Java/Kotlin class using JavalinJson.
@@ -114,7 +116,13 @@ open class Context(@JvmField val req: HttpServletRequest, @JvmField val res: Htt
      */
     inline fun <reified T : Any> body(): T = bodyAsClass(T::class.java)
 
-    /** Gets the request body as a [ByteArray]. */
+    /** Gets the request body as a [ByteArray].
+     *
+     * Calling this method consumes the underlying InputStream. It will return the body
+     * as a [ByteArray] on the first call, and an empty array for subsequent calls,
+     * unless the InputStream is cached. By default, bodies up to 4kb are cached.
+     * Use [io.javalin.core.JavalinConfig.requestCacheSize] to configure cache size.
+     */
     fun bodyAsBytes(): ByteArray = req.inputStream.readBytes()
 
     /**
@@ -131,6 +139,7 @@ open class Context(@JvmField val req: HttpServletRequest, @JvmField val res: Htt
     fun <T> bodyValidator(clazz: Class<T>) = try {
         Validator(JavalinJson.fromJson(body(), clazz), "Request body as ${clazz.simpleName}")
     } catch (e: Exception) {
+        Javalin.log?.debug("Couldn't deserialize body to ${clazz.simpleName}", e);
         throw BadRequestResponse("Couldn't deserialize body to ${clazz.simpleName}")
     }
 
@@ -169,7 +178,7 @@ open class Context(@JvmField val req: HttpServletRequest, @JvmField val res: Htt
     /** Gets a map with all the form param keys and values. */
     fun formParamMap(): Map<String, List<String>> =
             if (isMultipartFormData()) MultipartUtil.getFieldMap(req)
-            else ContextUtil.splitKeyValueStringAndGroupByKey(body())
+            else ContextUtil.splitKeyValueStringAndGroupByKey(body(), characterEncoding)
 
     /**
      * Gets a path param by name (ex: pathParam("param").
@@ -193,12 +202,20 @@ open class Context(@JvmField val req: HttpServletRequest, @JvmField val res: Htt
     fun pathParamMap(): Map<String, String> = Collections.unmodifiableMap(pathParamMap)
 
     /**
-     * Gets basic-auth credentials from the request.
+     * Checks whether or not basic-auth credentials from the request exists.
+     *
+     * Returns a Boolean which is true if there is an Authorization header with
+     * Basic auth credentials. Returns false otherwise.
+     */
+    fun basicAuthCredentialsExists(): Boolean = ContextUtil.hasBasicAuthCredentials(header(Header.AUTHORIZATION))
+
+    /**
+     * Gets basic-auth credentials from the request, or throws.
      *
      * Returns a wrapper object [BasicAuthCredentials] which contains the
      * Base64 decoded username and password from the Authorization header.
      */
-    fun basicAuthCredentials(): BasicAuthCredentials? = ContextUtil.getBasicAuthCredentials(header(Header.AUTHORIZATION))
+    fun basicAuthCredentials(): BasicAuthCredentials = ContextUtil.getBasicAuthCredentials(header(Header.AUTHORIZATION))
 
     /** Sets an attribute on the request. Attributes are available to other handlers in the request lifecycle */
     fun attribute(key: String, value: Any?) = req.setAttribute(key, value)
@@ -228,7 +245,7 @@ open class Context(@JvmField val req: HttpServletRequest, @JvmField val res: Htt
     fun <T> header(header: String, clazz: Class<T>): Validator<T> = Validator.create(clazz, header(header), "Request header '$header' with value '${header(header)}'")
 
     /** Reified version of [header] (Kotlin only) */
-    inline fun <reified T: Any> header(header: String) = header(header, T::class.java)
+    inline fun <reified T : Any> header(header: String) = header(header, T::class.java)
 
     /** Gets a map with all the header keys and values on the request. */
     fun headerMap(): Map<String, String> = req.headerNames.asSequence().associate { it to header(it)!! }
@@ -279,7 +296,7 @@ open class Context(@JvmField val req: HttpServletRequest, @JvmField val res: Htt
     fun queryParams(key: String): List<String> = queryParamMap()[key] ?: emptyList()
 
     /** Gets a map with all the query param keys and values. */
-    fun queryParamMap(): Map<String, List<String>> = ContextUtil.splitKeyValueStringAndGroupByKey(queryString() ?: "")
+    fun queryParamMap(): Map<String, List<String>> = ContextUtil.splitKeyValueStringAndGroupByKey(queryString() ?: "", characterEncoding)
 
     /** Gets the request query string, or null. */
     fun queryString(): String? = req.queryString

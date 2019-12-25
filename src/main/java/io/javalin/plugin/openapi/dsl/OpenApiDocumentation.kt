@@ -1,5 +1,6 @@
 package io.javalin.plugin.openapi.dsl
 
+import io.javalin.plugin.openapi.annotations.ComposedType
 import io.javalin.plugin.openapi.annotations.ContentType
 import io.javalin.plugin.openapi.external.findSchema
 import io.swagger.v3.oas.models.Components
@@ -18,9 +19,11 @@ class OpenApiDocumentation {
     val parameterUpdaterListMapping = mutableMapOf<String, MutableList<OpenApiUpdater<Parameter>>>()
     val responseUpdaterListMapping = mutableMapOf<String, MutableList<OpenApiUpdater<ApiResponse>>>()
     val componentsUpdaterList = mutableListOf<OpenApiUpdater<Components>>()
+    val formParameterList = mutableListOf<DocumentedFormParameter>()
 
     fun hasRequestBodies(): Boolean = requestBodyList.isNotEmpty()
     fun hasResponses(): Boolean = responseUpdaterListMapping.values.flatten().isNotEmpty()
+    fun hasFormParameter(): Boolean = formParameterList.isNotEmpty()
 
     /** Hide the endpoint in the documentation */
     @JvmOverloads
@@ -91,6 +94,29 @@ class OpenApiDocumentation {
         parameterUpdaterList.addIfNotNull(openApiUpdater)
     }
 
+    // --- FORM PARAM ---
+    inline fun <reified T> formParam(name: String, required: Boolean = false): OpenApiDocumentation = apply {
+        formParam(name, T::class.java, required)
+    }
+
+    fun formParam(name: String, clazz: Class<*>, required: Boolean = false) = apply {
+        formParam(DocumentedFormParameter(name, clazz, required))
+    }
+
+    fun formParam(formParameter: DocumentedFormParameter) = apply {
+        formParameterList.add(formParameter)
+    }
+
+    // --- FORM PARAM BODY ---
+    inline fun <reified T> formParamBody(noinline applyUpdates: ApplyUpdates<RequestBody>? = null) = apply {
+        formParamBody(T::class.java, createUpdaterIfNotNull(applyUpdates))
+    }
+
+    @JvmOverloads
+    fun formParamBody(clazz: Class<*>, openApiUpdater: OpenApiUpdater<RequestBody>? = null) = apply {
+        body(clazz, "application/x-www-form-urlencoded", openApiUpdater)
+    }
+
     // --- UPLOADED FILE ---
     fun uploadedFile(name: String, applyUpdates: ApplyUpdates<RequestBody>? = null) = apply {
         uploadedFile(name, createUpdaterIfNotNull(applyUpdates))
@@ -139,6 +165,11 @@ class OpenApiDocumentation {
     }
 
     @JvmOverloads
+    fun body(composition: Composition, contentType: String? = null, openApiUpdater: OpenApiUpdater<RequestBody>? = null) = apply {
+        body(composition.content, openApiUpdater, contentType, composition.type)
+    }
+
+    @JvmOverloads
     fun body(returnType: Class<*>, contentType: String? = null, openApiUpdater: OpenApiUpdater<RequestBody>? = null) = apply {
         val documentedContent = listOf(DocumentedContent(returnType, false, contentType))
         body(documentedContent, openApiUpdater)
@@ -151,8 +182,8 @@ class OpenApiDocumentation {
     }
 
     @JvmOverloads
-    fun body(content: List<DocumentedContent>, openApiUpdater: OpenApiUpdater<RequestBody>? = null) = apply {
-        val documentedBody = DocumentedRequestBody(content)
+    fun body(content: List<DocumentedContent>, openApiUpdater: OpenApiUpdater<RequestBody>? = null, contentType: String? = null, composedType: ComposedType = ComposedType.NULL) = apply {
+        val documentedBody = DocumentedRequestBody(content, contentType, composedType)
         body(documentedBody, openApiUpdater)
     }
 
@@ -239,6 +270,11 @@ class OpenApiDocumentation {
         result(status, documentedContent, openApiUpdater)
     }
 
+    @JvmOverloads
+    fun result(status: String, composition: Composition.OneOf, applyUpdates: ApplyUpdates<ApiResponse>? = null) = apply {
+        result(status, composition.content, createUpdaterIfNotNull(applyUpdates))
+    }
+
     fun result(documentedResponse: DocumentedResponse, applyUpdates: ApplyUpdates<ApiResponse>? = null) = apply {
         result(documentedResponse, createUpdaterIfNotNull(applyUpdates))
     }
@@ -283,6 +319,7 @@ class OpenApiDocumentation {
         }
 
         this.componentsUpdaterList.addAll(other.componentsUpdaterList)
+        this.formParameterList.addAll(other.formParameterList)
     }
 }
 

@@ -19,7 +19,9 @@ annotation class OpenApi(
         val headers: Array<OpenApiParam> = [],
         val pathParams: Array<OpenApiParam> = [],
         val queryParams: Array<OpenApiParam> = [],
+        val formParams: Array<OpenApiFormParam> = [],
         val requestBody: OpenApiRequestBody = OpenApiRequestBody([]),
+        val composedRequestBody: OpenApiComposedRequestBody = OpenApiComposedRequestBody([]),
         val fileUploads: Array<OpenApiFileUpload> = [],
         val responses: Array<OpenApiResponse> = [],
         /** The path of the endpoint. This will if the annotation * couldn't be found via reflection. */
@@ -46,10 +48,26 @@ annotation class OpenApiParam(
 )
 
 @Target()
+annotation class OpenApiFormParam(
+        val name: String,
+        val type: KClass<*> = String::class,
+        val required: Boolean = false
+)
+
+@Target()
 annotation class OpenApiRequestBody(
         val content: Array<OpenApiContent>,
         val required: Boolean = false,
         val description: String = NULL_STRING
+)
+
+@Target()
+annotation class OpenApiComposedRequestBody(
+        val anyOf: Array<OpenApiContent> = [],
+        val oneOf: Array<OpenApiContent> = [],
+        val required: Boolean = false,
+        val description: String = NULL_STRING,
+        val contentType: String = ContentType.AUTODETECT
 )
 
 @Target()
@@ -77,7 +95,14 @@ class NULL_CLASS
 object ContentType {
     const val JSON = "application/json"
     const val HTML = "text/html"
+    const val FORM_DATA = "application/x-www-form-urlencoded"
     const val AUTODETECT = "AUTODETECT - Will be replaced later"
+}
+
+enum class ComposedType {
+    NULL,
+    ANY_OF,
+    ONE_OF;
 }
 
 enum class HttpMethod {
@@ -110,9 +135,11 @@ fun OpenApi.warnUserIfPathParameterIsMissingInPath(parentClass: Class<*>) {
     val pathParamsPlaceholders = pathParams.map { ":${it.name}" };
     val pathParamsPlaceholderNotInPath = pathParamsPlaceholders.filter { !path.contains(it) }
 
-    Javalin.log.warn(
-            formatMissingPathParamsPlaceholderWarningMessage(parentClass, pathParamsPlaceholderNotInPath)
-    )
+    if (pathParamsPlaceholderNotInPath.size > 0) {
+        Javalin.log.warn(
+                formatMissingPathParamsPlaceholderWarningMessage(parentClass, pathParamsPlaceholderNotInPath)
+        )
+    }
 }
 
 fun OpenApi.formatMissingPathParamsPlaceholderWarningMessage(parentClass: Class<*>, pathParamsPlaceholders: List<String>): String {
